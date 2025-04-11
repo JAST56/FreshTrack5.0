@@ -4,18 +4,41 @@ document.addEventListener('DOMContentLoaded', function() {
     const startButton = document.getElementById('start-scanner');
     const stopButton = document.getElementById('stop-scanner');
     const resultElement = document.getElementById('result-content');
+    const videoContainer = document.querySelector('.video-container');
     
     let scanning = false;
     let videoStream = null;
     
+    // Crear el contenedor placeholder
+    const placeholderContainer = document.createElement('div');
+    placeholderContainer.className = 'scanner-placeholder';
+    placeholderContainer.innerHTML = `
+        <div class="placeholder-content">
+            <i class="fas fa-qrcode"></i>
+            <p>Presione "Iniciar Escáner" para activar la cámara y escanear un código QR</p>
+        </div>
+    `;
+    
+    // Insertar el placeholder antes del contenedor de video
+    videoContainer.parentNode.insertBefore(placeholderContainer, videoContainer);
+    
+    // Ocultar inicialmente el contenedor de video
+    videoContainer.style.display = 'none';
+    
     // Iniciar el escáner
     startButton.addEventListener('click', function() {
+        // Ocultar placeholder y mostrar video
+        placeholderContainer.style.display = 'none';
+        videoContainer.style.display = 'block';
         startScanner();
     });
     
     // Detener el escáner
     stopButton.addEventListener('click', function() {
+        // Al detener, volver a mostrar placeholder y ocultar video
         stopScanner();
+        videoContainer.style.display = 'none';
+        placeholderContainer.style.display = 'block';
     });
     
     async function startScanner() {
@@ -49,6 +72,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
             showToastFromScanner('No se pudo acceder a la cámara. Verifique los permisos.', 'error');
+            
+            // Mostrar placeholder nuevamente si hay error
+            videoContainer.style.display = 'none';
+            placeholderContainer.style.display = 'block';
         }
     }
     
@@ -138,6 +165,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     clearInterval(scanInterval);
                     stopScanner();
                     
+                    // Mostrar placeholder después de escanear
+                    videoContainer.style.display = 'none';
+                    placeholderContainer.style.display = 'block';
+                    
                     // Mostrar notificación
                     showToastFromScanner('Código QR detectado correctamente', 'success');
                 }
@@ -206,6 +237,29 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Establecer número de lote
             batchNumberInput.value = productData.batchNumber || '';
+            
+            // Si hay cantidad y unidad, también establecerlas
+            if (productData.quantity) {
+                const quantityInput = document.getElementById('quantity');
+                if (quantityInput) {
+                    quantityInput.value = productData.quantity;
+                }
+            }
+            
+            if (productData.quantityUnit) {
+                const quantityUnitSelect = document.getElementById('quantity-unit');
+                if (quantityUnitSelect) {
+                    quantityUnitSelect.value = productData.quantityUnit;
+                }
+            }
+            
+            // Si hay ubicación de almacenamiento, establecerla
+            if (productData.storageLocation) {
+                const storageLocationInput = document.getElementById('storage-location');
+                if (storageLocationInput) {
+                    storageLocationInput.value = productData.storageLocation;
+                }
+            }
             
             // Desplazarse al formulario
             document.getElementById('new-product-form').scrollIntoView({ behavior: 'smooth' });

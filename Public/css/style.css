@@ -993,6 +993,34 @@ section {
     border-radius: var(--border-radius);
 }
 
+.scanner-placeholder {
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--light-color);
+    border-radius: var(--border-radius);
+    border: 1px dashed var(--gray-color);
+    margin-bottom: 1.25rem;
+}
+
+.placeholder-content {
+    text-align: center;
+    padding: 2rem;
+}
+
+.placeholder-content i {
+    font-size: 4rem;
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+    opacity: 0.7;
+}
+
+.placeholder-content p {
+    color: var(--medium-color);
+    font-size: 1.1rem;
+}
+
 /* Añadir guía visual para escaneo */
 .scan-overlay {
     position: absolute;
