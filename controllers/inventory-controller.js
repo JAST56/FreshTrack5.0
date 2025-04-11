@@ -85,7 +85,7 @@ class InventoryController {
     static async determineStatus(expirationDate) {
         try {
             const warningDaysSetting = await SystemModel.getSetting('warning_days');
-            const warningDays = parseInt(warningDaysSetting) || 10;
+            const warningDays = parseInt(warningDaysSetting) || 3; // Cambiado de 10 a 3 días
             
             const today = new Date();
             const expiration = new Date(expirationDate);

@@ -1,16 +1,24 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <script>
+        // Verificar autenticación antes de cargar la página
+        if (localStorage.getItem('freshtrack_auth') !== 'true') {
+            window.location.href = window.location.origin;
+        }
+    </script>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FreshTrack - Sistema de Gestión de Alimentos</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
     <header>
         <div class="logo">
-            <img src="img/FreshTrackLogo.png" alt="FreshTrack Logo">
+            <!-- Asegurarse de que la ruta del logo es correcta (nota la primera letra en mayúscula) -->
+            <img src="/img/FreshTrackLogo.png" alt="FreshTrack Logo">
         </div>
         <div class="header-center">
             <div class="sensor-item">
@@ -50,8 +58,24 @@
                 <i class="fas fa-tint"></i>
                 <span id="humidity">-- %</span>
             </div>
+            <button id="refresh-sensors" class="btn-icon refresh-btn" onclick="window.forceUpdateDisplays()">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <!-- Reemplaza el botón actual de logout con este -->
+        <div class="user-profile">
+            <span class="user-greeting">¡Hola, <span id="username-display">Admin</span>!</span>
+            <button onclick="confirmLogout()" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+            </button>
         </div>
     </header>
+
+    <!-- Toggle para modo oscuro -->
+    <div class="dark-mode-toggle">
+        <i class="fas fa-moon"></i>
+        <span class="toggle-text">Modo Oscuro</span>
+    </div>
 
     <!-- Toast para notificaciones -->
     <div id="toast-container" class="toast-container"></div>
@@ -69,10 +93,23 @@
             </div>
         </section>
 
+        <!-- Modificar la sección de encabezado de inventario para agregar botones -->
         <section class="dashboard">
             <div class="card">
-                <h2>Inventario de Alimentos</h2>
-                <p class="subtitle">Ordenado por proximidad a la fecha de vencimiento</p>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2>Inventario de Alimentos</h2>
+                        <p class="subtitle">Ordenado por proximidad a la fecha de vencimiento</p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="showInventoryReport()" class="btn-secondary" style="height: fit-content;">
+                            <i class="fas fa-chart-pie"></i> Ver Reporte
+                        </button>
+                        <button onclick="exportInventoryToExcel()" class="btn-primary" style="height: fit-content;">
+                            <i class="fas fa-file-excel"></i> Exportar Inventario
+                        </button>
+                    </div>
+                </div>
                 <div class="table-container">
                     <table id="food-inventory">
                         <thead>
@@ -101,7 +138,72 @@
             </div>
         </section>
 
-        <!-- Sección para el escáner de QR -->
+        <!-- Panel de Control -->
+        <section class="analytics-dashboard">
+            <div class="card">
+                <h2>Panel de Control</h2>
+                <p class="subtitle">Análisis en tiempo real de su inventario</p>
+                
+                <div class="stats-container">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-box"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="total-items">0</h3>
+                            <p>Total de Productos</p>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="expiring-soon">0</h3>
+                            <p>Por Vencer</p>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="expired-items">0</h3>
+                            <p>Vencidos</p>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-thermometer-half"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="avg-temperature">--°C</h3>
+                            <p>Temperatura Promedio</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="inventory-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sección para mostrar gráfico de temperatura -->
+        <section class="temperature-chart-section">
+            <div class="card">
+                <h2>Evolución de Temperatura</h2>
+                <p class="subtitle">Seguimiento de la temperatura en las últimas 2 horas</p>
+                
+                <div class="chart-container">
+                    <canvas id="temperature-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
         <section class="scanner-section">
             <div class="card">
                 <h2>Escáner de Código QR</h2>
@@ -110,6 +212,16 @@
                 <div class="scanner-container">
                     <div class="video-container">
                         <video id="qr-video" playsinline></video>
+                        <!-- Añadir esta guía visual -->
+                        <div class="scan-overlay">
+                            <div class="scan-area">
+                                <div class="scan-line"></div>
+                                <div class="scan-corners corner-top-left"></div>
+                                <div class="scan-corners corner-top-right"></div>
+                                <div class="scan-corners corner-bottom-left"></div>
+                                <div class="scan-corners corner-bottom-right"></div>
+                            </div>
+                        </div>
                     </div>
                     <div class="scanner-controls">
                         <button id="start-scanner" class="btn-primary">Iniciar Escáner</button>
@@ -205,6 +317,11 @@
                         </div>
                     </div>
                 </form>
+                <div class="prediction-container">
+                    <p id="expiration-prediction" class="prediction-message">
+                        Completa el tipo de alimento y fecha de fabricación para ver predicción
+                    </p>
+                </div>
             </div>
         </section>
         
@@ -260,12 +377,49 @@
                 </div>
             </div>
         </section>
+
+        <!-- Add this section before the end of main tag -->
+        <section class="config-section">
+            <div class="card">
+                <h2>Configuración del Sistema</h2>
+                <p class="subtitle">Ajustes para la conexión con el hardware</p>
+                
+                <div class="form-group">
+                    <label for="serial-port">Puerto Serial Arduino:</label>
+                    <div class="port-selector">
+                        <input type="text" id="serial-port" placeholder="Ejemplo: COM3">
+                        <button id="update-port" class="btn-primary">Actualizar Puerto</button>
+                    </div>
+                    <small>Puerto actual: <span id="current-port">Cargando...</span></small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Modo de Operación:</label>
+                    <div class="toggle-container">
+                        <div class="toggle-option">
+                            <input type="radio" id="hardware-mode" name="operation-mode">
+                            <label for="hardware-mode">Hardware Real</label>
+                        </div>
+                        <div class="toggle-option">
+                            <input type="radio" id="simulation-mode" name="operation-mode">
+                            <label for="simulation-mode">Simulación</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button id="test-connection" class="btn-secondary">
+                        <i class="fas fa-sync"></i> Probar Conexión
+                    </button>
+                </div>
+            </div>
+        </section>
     </main>
 
     <footer>
         <div class="footer-content">
             <div class="footer-logo">
-                <img src="img/FreshTrackLogo.png" alt="FreshTrack" height="40">
+                <img src="/img/FreshTrackLogo.png" alt="FreshTrack" height="40">
             </div>
             <div class="footer-links">
                 <a href="#">Inicio</a>
@@ -274,17 +428,222 @@
             </div>
             <div class="footer-copyright">
                 <p>Sistema de Gestión de Inventario de Alimentos &copy; 2025</p>
-                <p class="footer-version">Versión 1.1.0</p>
+                <p class="footer-version">Versión 1.2.0 - Mejorado con FreshTrack+</p>
             </div>
         </div>
     </footer>
 
+    <!-- Add this before closing body tag -->
+    <div id="item-details-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Detalles del Producto</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Content will be loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Agregar este nuevo modal al final del body antes de los scripts -->
+
+    <div id="inventory-report-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Reporte de Inventario</h3>
+                <button class="close-button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="report-filters">
+                    <h4>Filtros de Reporte</h4>
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label for="report-type">Tipo de Alimento:</label>
+                            <select id="report-type">
+                                <option value="all">Todos</option>
+                                <!-- Se cargarán dinámicamente -->
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="report-status">Estado:</label>
+                            <select id="report-status">
+                                <option value="all">Todos</option>
+                                <option value="ok">Buen estado</option>
+                                <option value="warning">Próximo a vencer</option>
+                                <option value="danger">Vencido/Crítico</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="report-location">Ubicación:</label>
+                            <input type="text" id="report-location" placeholder="Filtrar por ubicación">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="report-summary">
+                    <h4>Resumen del Inventario</h4>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-label">Total de productos:</span>
+                            <span id="report-total" class="summary-value">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">En buen estado:</span>
+                            <span id="report-ok" class="summary-value">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Próximos a vencer:</span>
+                            <span id="report-warning" class="summary-value">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Vencidos:</span>
+                            <span id="report-danger" class="summary-value">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="report-table-container">
+                    <h4>Detalle de Productos</h4>
+                    <table id="report-table" class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Producto</th>
+                                <th>Tipo</th>
+                                <th>Lote</th>
+                                <th>Cantidad</th>
+                                <th>Ubicación</th>
+                                <th>Vencimiento</th>
+                                <th>Días</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Se cargará dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="report-export-excel" class="btn-primary">
+                    <i class="fas fa-file-excel"></i> Exportar a Excel
+                </button>
+                <button id="report-close" class="btn-secondary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selector de temas -->
+    <div class="theme-selector" id="theme-toggle">
+        <i class="fas fa-palette"></i>
+    </div>
+
+    <div class="theme-panel" id="theme-panel">
+        <h4>
+            <span><i class="fas fa-palette"></i> Tema Visual</span>
+            <button class="close-theme-panel" id="close-theme-panel">
+                <i class="fas fa-times"></i>
+            </button>
+        </h4>
+        
+        <div class="theme-options">
+            <div class="theme-option theme-default active" data-theme="default"></div>
+            <div class="theme-option theme-blue" data-theme="blue"></div>
+            <div class="theme-option theme-purple" data-theme="purple"></div>
+            <div class="theme-option theme-green" data-theme="green"></div>
+        </div>
+    </div>
+
     <!-- Biblioteca para escaneo de QR -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     
+    <!-- Biblioteca para Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- Biblioteca para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    
     <!-- Scripts de la aplicación -->
-    <script src="js/app.js"></script>
-    <script src="js/scanner.js"></script>
-    <script src="js/arduino-connection.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/scanner.js"></script>
+    <script src="/js/arduino-connection.js"></script>
+    <script src="/js/analytics.js"></script>
+    <script src="/js/config.js"></script>
+
+    <!-- Reemplaza la función logout actual con estas funciones -->
+    <script>
+        // Función para mostrar el diálogo de confirmación
+        function confirmLogout() {
+            // Crear modal de confirmación
+            const modal = document.createElement('div');
+            modal.className = 'confirm-modal';
+            modal.innerHTML = `
+                <div class="confirm-content">
+                    <div class="confirm-title">
+                        <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+                    </div>
+                    <div class="confirm-message">
+                        ¿Está seguro que desea cerrar su sesión en FreshTrack?
+                    </div>
+                    <div class="confirm-actions">
+                        <button class="btn-cancel">Cancelar</button>
+                        <button class="btn-confirm">Cerrar Sesión</button>
+                    </div>
+                </div>
+            `;
+            
+            // Agregar al DOM
+            document.body.appendChild(modal);
+            
+            // Mostrar modal con efecto
+            setTimeout(() => {
+                modal.classList.add('show');
+            }, 10);
+            
+            // Manejar clic en botón Cancelar
+            modal.querySelector('.btn-cancel').addEventListener('click', () => {
+                modal.classList.remove('show');
+                setTimeout(() => {
+                    document.body.removeChild(modal);
+                }, 300);
+            });
+            
+            // Manejar clic en botón Cerrar Sesión
+            modal.querySelector('.btn-confirm').addEventListener('click', () => {
+                // Mostrar mensaje de cierre
+                modal.querySelector('.confirm-content').innerHTML = `
+                    <div class="confirm-title">
+                        <i class="fas fa-spinner fa-spin"></i> Cerrando Sesión
+                    </div>
+                    <div class="confirm-message">
+                        Gracias por usar FreshTrack...
+                    </div>
+                `;
+                
+                // Eliminar datos de sesión
+                localStorage.removeItem('freshtrack_auth');
+                localStorage.removeItem('freshtrack_user');
+                
+                // Redirigir al login con una pequeña pausa para mostrar el mensaje
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 1200);
+            });
+        }
+        
+        // Actualizar el nombre de usuario en la interfaz
+        document.addEventListener('DOMContentLoaded', function() {
+            const usernameDisplay = document.getElementById('username-display');
+            const username = localStorage.getItem('freshtrack_user') || 'Admin';
+            
+            if (usernameDisplay) {
+                usernameDisplay.textContent = username.charAt(0).toUpperCase() + username.slice(1);
+            }
+        });
+    </script>
 </body>
 </html>

@@ -6,7 +6,7 @@ const path = require('path');
 const dbConfig = {
     host: 'localhost',
     user: 'root',
-    password: 'Kjpg0880',  // Cambiar según tu configuración de mysql
+    password: 'Youtube08',  // Cambiar según tu configuración de mysql
     database: 'freshtrack'
 };
 

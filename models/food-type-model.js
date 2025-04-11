@@ -56,15 +56,20 @@ class FoodTypeModel {
             const baseDays = foodType[0].base_expiration_days;
             
             // Calcular factor de temperatura
-            let tempFactor = 1; // Factor normal
+            let tempFactor = 1; // Factor normal para temperatura óptima
             
+            // Aplicar factores de temperatura más equilibrados
             if (temperature > tempHigh) {
-                tempFactor = 0.5; // Reduce 50% de vida útil
+                tempFactor = 0.7; // Reduce 30% de vida útil en lugar de 50%
             } else if (temperature > tempMedium) {
-                tempFactor = 0.7; // Reduce 30% de vida útil
+                tempFactor = 0.85; // Reduce 15% de vida útil en lugar de 30%
+            } else if (temperature < 0) {
+                // Para temperaturas bajo cero (congelador)
+                tempFactor = 2.0; // Duplica la vida útil para alimentos congelados
             }
             
-            const adjustedDays = Math.floor(baseDays * tempFactor);
+            // Usar días completos para mayor precisión
+            const adjustedDays = Math.round(baseDays * tempFactor);
             
             // Calcular fecha de vencimiento
             const entryDateTime = new Date(entryDate);

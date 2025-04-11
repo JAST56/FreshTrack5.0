@@ -7,16 +7,21 @@ class ArduinoController {
     constructor() {
         this.serialPort = null;
         this.parser = null;
-        this.connectionStatus = 'Desconectado';
-        this.lastTemperature = 22.0;
-        this.lastHumidity = 60.0;
         this.simulationMode = true;
+        this.connectionStatus = 'Desconectado';
+        this.lastTemperature = 5.0;
+        this.lastHumidity = 60.0;
         this.simulationInterval = null;
+        this.reconnectTimer = null;
+        this.initializationAttempts = 0;
+        this.maxInitializationAttempts = 3;
     }
-    
-    // Inicializar la conexión con Arduino
+
     async initialize() {
         try {
+            this.initializationAttempts++;
+            console.log(`Intento de inicialización ${this.initializationAttempts}/${this.maxInitializationAttempts}`);
+            
             // Comprobar si el modo simulación está activado
             this.simulationMode = await SystemModel.isSimulationModeEnabled();
             
@@ -26,15 +31,45 @@ class ArduinoController {
                 this.startSimulation();
                 return true;
             }
+
+            // Obtener puertos seriales disponibles
+            const ports = await SerialPort.list();
+            console.log('Puertos seriales disponibles:', ports.map(p => p.path));
             
             // Obtener el puerto configurado
-            const serialPortPath = await SystemModel.getSetting('serial_port') || 'COM7';
+            const serialPortPath = await SystemModel.getSetting('serial_port') || 'COM3';
+            console.log(`Intentando conectar al puerto ${serialPortPath}...`);
+
+            // Cerrar puerto anterior si existe
+            if (this.serialPort && this.serialPort.isOpen) {
+                console.log('Cerrando puerto serial anterior...');
+                await new Promise(resolve => {
+                    this.serialPort.close(resolve);
+                });
+            }
             
-            // Intentar conectar al puerto serial
+            // Intentar abrir el puerto con manejo de errores mejorado
             try {
                 this.serialPort = new SerialPort({ 
                     path: serialPortPath, 
-                    baudRate: 9600 
+                    baudRate: 9600,
+                    autoOpen: false
+                });
+                
+                // Usar promesa para manejar la apertura del puerto
+                await new Promise((resolve, reject) => {
+                    this.serialPort.open(err => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    });
+                    
+                    // Establecer un tiempo límite para la apertura
+                    setTimeout(() => {
+                        reject(new Error('Tiempo de espera agotado al abrir el puerto'));
+                    }, 5000);
                 });
                 
                 this.connectionStatus = 'Conectado';
@@ -46,183 +81,292 @@ class ArduinoController {
                 // Manejar los datos recibidos
                 this.parser.on('data', this.handleData.bind(this));
                 
-                // Manejar errores
+                // Configurar manejo de errores en el puerto serial
                 this.serialPort.on('error', (err) => {
-                    console.error('Error en el puerto serie:', err.message);
-                    this.connectionStatus = `Error: ${err.message}`;
-                    
-                    // Si hay error de conexión, activar modo simulación
-                    if (!this.simulationMode) {
-                        console.log('Activando modo simulación debido a error en puerto serial');
-                        this.simulationMode = true;
-                        this.startSimulation();
-                    }
+                    console.error(`Error en puerto serial: ${err.message}`);
+                    this.handleSerialError(err);
                 });
                 
-                return true;
-            } catch (error) {
-                console.error(`Error al conectar con el puerto ${serialPortPath}:`, error.message);
-                this.connectionStatus = `Error: ${error.message}`;
+                // Configurar reconexión automática si se pierde la conexión
+                this.serialPort.on('close', () => {
+                    console.log('Conexión serial cerrada. Intentando reconectar...');
+                    this.connectionStatus = 'Reconectando';
+                    
+                    // Limpiar timer anterior si existe
+                    if (this.reconnectTimer) {
+                        clearTimeout(this.reconnectTimer);
+                    }
+                    
+                    // Intentar reconectar después de 5 segundos
+                    this.reconnectTimer = setTimeout(async () => {
+                        console.log('Intentando reconexión...');
+                        this.initializationAttempts = 0; // Resetear contador para reconexión
+                        await this.initialize();
+                    }, 5000);
+                });
                 
-                // Activar modo simulación
+                // Iniciar con una lectura simulada para tener datos inmediatos
+                this.lastTemperature = 5.0;
+                this.lastHumidity = 60.0;
+                await TemperatureModel.logTemperature(
+                    this.lastTemperature,
+                    this.lastHumidity,
+                    'initial'
+                );
+                
+                // Resetear contador de intentos cuando hay éxito
+                this.initializationAttempts = 0;
+                
+                return true;
+                
+            } catch (serialError) {
+                console.error(`Error al abrir puerto ${serialPortPath}:`, serialError.message);
+                throw serialError; // Propagar el error al manejador principal
+            }
+        } catch (error) {
+            console.error(`Error al inicializar controlador Arduino:`, error.message);
+            this.connectionStatus = `Error: ${error.message}`;
+            
+            // Si hemos intentado varias veces sin éxito, activar modo simulación
+            if (this.initializationAttempts >= this.maxInitializationAttempts) {
+                console.log(`Máximo de intentos alcanzado (${this.maxInitializationAttempts}). Activando modo simulación.`);
                 this.simulationMode = true;
+                await SystemModel.updateSetting('simulation_mode', 'true');
                 this.startSimulation();
+                return true; // Retornar true porque la simulación está activa
+            } else {
+                console.log(`Intento ${this.initializationAttempts} falló. Reintentando en 5 segundos...`);
+                
+                // Programar reintento
+                if (this.reconnectTimer) {
+                    clearTimeout(this.reconnectTimer);
+                }
+                
+                this.reconnectTimer = setTimeout(async () => {
+                    await this.initialize();
+                }, 5000);
+                
+                // Para el primer intento, activamos simulación temporalmente
+                if (this.initializationAttempts === 1) {
+                    console.log('Activando modo simulación temporal mientras se resuelve la conexión hardware');
+                    this.startSimulation();
+                }
                 
                 return false;
             }
-        } catch (error) {
-            console.error('Error al inicializar controlador Arduino:', error);
-            this.simulationMode = true;
-            this.startSimulation();
-            return false;
         }
     }
-    
-    // Manejar los datos recibidos del Arduino
-    async handleData(data) {
+
+    handleSerialError(error) {
+        console.error('Error en puerto serial:', error.message);
+        this.connectionStatus = `Error: ${error.message}`;
+        
+        // Si el error es fatal, intentar inicializar de nuevo
+        if (error.disconnected || error.message.includes('Access denied') || error.message.includes('cannot open')) {
+            console.log('Error fatal en puerto serial. Reiniciando conexión...');
+            
+            // Limpiar timer anterior si existe
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+            }
+            
+            // Intentar reconectar después de 5 segundos
+            this.reconnectTimer = setTimeout(async () => {
+                this.initializationAttempts = 0; // Resetear contador para reconexión desde error
+                await this.initialize();
+            }, 5000);
+        }
+    }
+
+    handleData(data) {
         try {
-            // Intentar parsear los datos como JSON
-            const sensorData = JSON.parse(data.trim());
+            console.log('Datos recibidos del Arduino:', data);
             
-            if (sensorData.temperature !== undefined) {
-                this.lastTemperature = sensorData.temperature;
+            // Intentar parsear el JSON
+            const jsonData = JSON.parse(data.trim());
+            
+            // Verificar si hay error en la lectura
+            if (jsonData.error) {
+                console.error('Error reportado por Arduino:', jsonData.error);
+                return;
             }
             
-            if (sensorData.humidity !== undefined) {
-                this.lastHumidity = sensorData.humidity;
+            // Verificar que los datos sean válidos
+            if (jsonData.temperature !== undefined && jsonData.humidity !== undefined) {
+                const temp = parseFloat(jsonData.temperature);
+                const humidity = parseFloat(jsonData.humidity);
+                
+                // Verificar que los valores estén en rangos razonables
+                if (!isNaN(temp) && !isNaN(humidity) && 
+                    temp >= -40 && temp <= 80 && 
+                    humidity >= 0 && humidity <= 100) {
+                    
+                    // Actualizar valores
+                    this.lastTemperature = temp;
+                    this.lastHumidity = humidity;
+                    
+                    // Registrar en la base de datos
+                    TemperatureModel.logTemperature(
+                        this.lastTemperature,
+                        this.lastHumidity,
+                        'arduino'
+                    );
+                    
+                    console.log(`Temperatura: ${this.lastTemperature}°C, Humedad: ${this.lastHumidity}%`);
+                } else {
+                    console.error('Valores de temperatura o humedad fuera de rango:', jsonData);
+                }
             }
-            
-            // Guardar en la base de datos
-            await TemperatureModel.logTemperature(
-                this.lastTemperature, 
-                this.lastHumidity, 
-                'sensor'
-            );
-            
-            console.log('Datos recibidos:', { 
-                temperature: this.lastTemperature, 
-                humidity: this.lastHumidity 
-            });
         } catch (error) {
-            // Si los datos no son JSON válido, intentar parsear como texto
-            console.log('Datos sin formato recibidos:', data.trim());
-            
-            // Intentar extraer temperatura y humedad de un formato como "Temp: 30.0 C, Hum: 54.0%"
-            const tempMatch = data.match(/Temp\s*:\s*(\d+(\.\d+)?)/i);
-            const humMatch = data.match(/Hum\s*:\s*(\d+(\.\d+)?)/i);
-            
-            if (tempMatch) {
-                this.lastTemperature = parseFloat(tempMatch[1]);
-                console.log('Temperatura extraída:', this.lastTemperature);
-            }
-            
-            if (humMatch) {
-                this.lastHumidity = parseFloat(humMatch[1]);
-                console.log('Humedad extraída:', this.lastHumidity);
-            }
-            
-            if (tempMatch || humMatch) {
-                // Guardar en la base de datos
-                await TemperatureModel.logTemperature(
-                    this.lastTemperature, 
-                    this.lastHumidity, 
-                    'sensor'
-                );
-            }
+            console.error('Error al procesar datos del Arduino:', error.message);
+            console.error('Datos recibidos:', data);
         }
     }
-    
-    // Iniciar simulación cuando no hay Arduino conectado
+
     startSimulation() {
         if (this.simulationInterval) {
             clearInterval(this.simulationInterval);
         }
         
-        console.log('Iniciando simulación de temperatura y humedad');
+        console.log('Iniciando simulación de datos del sensor...');
         
-        // Generar lecturas aleatorias cada 10 segundos
-        this.simulationInterval = setInterval(async () => {
-            // Temperatura entre 2 y 12 grados (refrigerador)
-            this.lastTemperature = +(Math.random() * 10 + 2).toFixed(1);
-            // Humedad entre 45 y 75%
-            this.lastHumidity = +(Math.random() * 30 + 45).toFixed(1);
+        // Establecer valores iniciales para la simulación
+        this.lastTemperature = 22.0; // Un valor inicial de habitación (antes era 5.0°C)
+        this.lastHumidity = 60.0;
+        
+        // Registrar lectura inicial en la base de datos
+        TemperatureModel.logTemperature(
+            this.lastTemperature,
+            this.lastHumidity,
+            'simulation'
+        );
+        
+        // Simular lecturas del sensor cada 10 segundos
+        this.simulationInterval = setInterval(() => {
+            // Simular pequeñas variaciones en la temperatura (entre -0.2 y +0.2)
+            const tempVariation = (Math.random() * 0.4) - 0.2;
+            this.lastTemperature += tempVariation;
             
-            // Guardar en la base de datos
-            await TemperatureModel.logTemperature(
-                this.lastTemperature, 
-                this.lastHumidity, 
+            // Mantener la temperatura en un rango realista para ambiente (20-26°C)
+            if (this.lastTemperature < 20) this.lastTemperature = 20;
+            if (this.lastTemperature > 26) this.lastTemperature = 26;
+            
+            // Simular pequeñas variaciones en la humedad (entre -1 y +1)
+            const humVariation = (Math.random() * 2) - 1;
+            this.lastHumidity += humVariation;
+            
+            // Mantener la humedad en un rango realista (40-60%)
+            if (this.lastHumidity < 40) this.lastHumidity = 40;
+            if (this.lastHumidity > 60) this.lastHumidity = 60;
+            
+            // Redondear a una decimal
+            this.lastTemperature = Math.round(this.lastTemperature * 10) / 10;
+            this.lastHumidity = Math.round(this.lastHumidity * 10) / 10;
+            
+            // Registrar en la base de datos
+            TemperatureModel.logTemperature(
+                this.lastTemperature,
+                this.lastHumidity,
                 'simulation'
             );
             
-            console.log('Datos simulados:', { 
-                temperature: this.lastTemperature, 
-                humidity: this.lastHumidity 
-            });
+            console.log(`[SIMULACIÓN] Temperatura: ${this.lastTemperature}°C, Humedad: ${this.lastHumidity}%`);
         }, 10000);
     }
-    
-    // Detener simulación
-    stopSimulation() {
-        if (this.simulationInterval) {
-            clearInterval(this.simulationInterval);
-            this.simulationInterval = null;
-        }
-    }
-    
-    // Obtener datos actuales del sensor
-    getSensorData() {
+
+    async getLatestData() {
+        // Devolver datos actuales
         return {
             temperature: this.lastTemperature,
             humidity: this.lastHumidity,
-            status: this.connectionStatus,
-            simulationMode: this.simulationMode
+            simulationMode: this.simulationMode,
+            status: this.connectionStatus
         };
     }
-    
-    // Cambiar al puerto serial especificado
-    async changeSerialPort(newPort) {
-        // Detener conexión actual
-        if (this.serialPort) {
-            this.serialPort.close();
-            this.serialPort = null;
-        }
-        
-        // Actualizar configuración en la base de datos
-        await SystemModel.updateSetting('serial_port', newPort);
-        
-        // Desactivar simulación
-        this.simulationMode = false;
-        await SystemModel.updateSetting('simulation_mode', 'false');
-        this.stopSimulation();
-        
-        // Reiniciar conexión
-        return this.initialize();
-    }
-    
-    // Cambiar modo simulación
+
     async toggleSimulationMode(enabled) {
-        this.simulationMode = enabled;
-        await SystemModel.updateSetting('simulation_mode', enabled ? 'true' : 'false');
-        
-        if (enabled) {
-            // Cerrar puerto serial si existe
-            if (this.serialPort) {
-                this.serialPort.close();
-                this.serialPort = null;
-            }
-            this.startSimulation();
-        } else {
-            // Detener simulación
-            this.stopSimulation();
-            // Intentar reconectar
-            return this.initialize();
+        try {
+            // Actualizar el modo de simulación
+            return await this.setSimulationMode(enabled);
+        } catch (error) {
+            console.error('Error al cambiar modo simulación:', error);
+            return {
+                success: false,
+                error: error.message
+            };
         }
-        
-        return true;
+    }
+
+    async setSimulationMode(enabled) {
+        try {
+            this.simulationMode = enabled;
+            
+            // Actualizar en la base de datos
+            await SystemModel.updateSetting('simulation_mode', enabled ? 'true' : 'false');
+            
+            if (enabled) {
+                // Si estamos activando la simulación, cerrar el puerto serial si está abierto
+                if (this.serialPort && this.serialPort.isOpen) {
+                    await new Promise(resolve => {
+                        this.serialPort.close(resolve);
+                    });
+                    this.serialPort = null;
+                    this.parser = null;
+                }
+                
+                // Iniciar simulación
+                this.connectionStatus = 'Simulación';
+                this.startSimulation();
+            } else {
+                // Si estamos desactivando la simulación, detener la simulación
+                if (this.simulationInterval) {
+                    clearInterval(this.simulationInterval);
+                    this.simulationInterval = null;
+                }
+                
+                // Intentar conectar al hardware
+                this.initializationAttempts = 0; // Resetear contador de intentos
+                await this.initialize();
+            }
+            
+            return {
+                success: true,
+                mode: enabled ? 'simulation' : 'hardware',
+                status: this.connectionStatus
+            };
+        } catch (error) {
+            console.error('Error al cambiar modo de simulación:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    async changeSerialPort(port) {
+        try {
+            // Actualizar puerto en la base de datos
+            await SystemModel.updateSetting('serial_port', port);
+            
+            // Si no estamos en modo simulación, reiniciar la conexión
+            if (!this.simulationMode) {
+                this.initializationAttempts = 0; // Resetear contador de intentos
+                await this.initialize();
+            }
+            
+            return {
+                success: true,
+                port: port,
+                status: this.connectionStatus
+            };
+        } catch (error) {
+            console.error('Error al actualizar puerto serial:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 }
 
-// Singleton para usar la misma instancia en toda la aplicación
-const arduinoController = new ArduinoController();
-
-module.exports = arduinoController;
+module.exports = new ArduinoController();
